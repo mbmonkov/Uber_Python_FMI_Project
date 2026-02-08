@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uber Clone | Вход</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/login.css') }}">
+</head>
+<body class="auth-body">
+
+    <nav class="navbar">
+        <a href="/client" class="logo">UBER</a>
+        <div class="nav-links">
+            <a href="/register" class="btn-yellow">Регистрация</a>
+        </div>
+    </nav>
+
+    <div class="auth-container">
+        <div class="auth-card">
+            <h2>Добре дошли отново</h2>
+            <p>Влезте в профила си, за да поръчате такси.</p>
+
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label>Имейл адрес</label>
+                    <input type="email" id="email" name="email" placeholder="email@example.com" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Парола</label>
+                    <input type="password" id="password" name="password" placeholder="********" required>
+                </div>
+
+                <button type="submit" class="btn-auth">Вход</button>
+            </form>
+
+            <div id="message" style="margin-top: 15px; font-size: 0.9rem; text-align: center;"></div>
+
+            <div class="auth-footer">
+                <span>Нямате профил? <a href="/register">Регистрирайте се тук</a></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const messageDiv = document.getElementById('message');
+
+            try {
+                const response = await fetch(`/login?email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`, {
+                    method: 'POST'
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    messageDiv.style.color = "green";
+                    messageDiv.innerText = "Успешен вход! Пренасочване...";
+
+                    localStorage.setItem('user', JSON.stringify(data));
+
+                    setTimeout(() => {
+                        if (data.role === 'client') {
+                            window.location.href = "/dashboard/client";
+                        } else if (data.role === 'driver') {
+                            window.location.href = "/dashboard/driver";
+                        } else {
+                            window.location.href = "/client";
+                        }
+                    }, 1000);
+                } else {
+                    messageDiv.style.color = "red";
+                    messageDiv.innerText = data.detail || "Грешен имейл или парола!";
+                }
+            } catch (error) {
+                messageDiv.style.color = "red";
+                messageDiv.innerText = "Грешка при връзката със сървъра.";
+                console.error('Error:', error);
+            }
+        });
+    </script>
+</body>
+</html>

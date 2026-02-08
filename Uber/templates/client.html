@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uber | Клиентски панел</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <style>
+        .dashboard-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
+        .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, select { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; }
+        .btn-action { background: #000; color: #fff; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-yellow-sm { background: #ffc043; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+        .history-list, .fav-list { max-height: 200px; overflow-y: auto; font-size: 0.9rem; }
+        .item { border-bottom: 1px solid #eee; padding: 10px 0; display: flex; justify-content: space-between; align-items: center; }
+        .status-badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; background: #eee; }
+    </style>
+</head>
+<body style="background: #f9f9f9;">
+
+    <nav class="navbar">
+        <a href="/client" class="logo">UBER</a>
+        <div class="nav-links">
+            <span id="display-name" style="color: white; margin-right: 15px;"></span>
+            <a href="/login" onclick="localStorage.clear()" class="btn-yellow">Изход</a>
+        </div>
+    </nav>
+
+    <div class="container dashboard-container">
+
+        <div class="left-col">
+            <div class="card">
+                <h3>🚕 Нова поръчка</h3>
+                <form id="trip-form">
+                    <input type="text" id="p_pickup" placeholder="Откъде (Адрес)?" required>
+                    <input type="text" id="p_dest" placeholder="Докъде?" required>
+                    <select id="p_cat">
+                        <option value="economy">Икономична</option>
+                        <option value="comfort">Комфорт</option>
+                        <option value="electric">Електрическа</option>
+                    </select>
+                    <label style="font-size: 0.8rem;"><input type="checkbox" id="p_urgent"> Спешна поръчка (+50% такса)</label>
+                    <button type="submit" class="btn-action" style="margin-top: 10px;">ПОРЪЧАЙ</button>
+                </form>
+
+                <div id="active-trip-zone" style="margin-top: 15px; display: none; background: #fffde7; padding: 15px; border-radius: 8px; border: 1px solid #ffd600;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong id="trip-status-txt">Статус: Търсим шофьор...</strong>
+                        <span id="price-display" class="status-badge">0.00 лв.</span>
+                    </div>
+                    <p id="driver-info" style="font-size: 0.85rem; margin: 10px 0; display: none;"></p>
+                    <button id="complete-btn" class="btn-action" style="background: #22c55e; display: none;">ПЛАТИ И ЗАВЪРШИ</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📜 История на пътуванията</h3>
+                <div id="history-box" class="history-list">Зареждане на история...</div>
+            </div>
+        </div>
+
+        <div class="right-col">
+            <div class="card">
+                <h3>⚙️ Настройки на профила</h3>
+                <div class="tab-content">
+                    <input type="text" id="u_address" placeholder="Домашен адрес">
+                    <input type="text" id="u_prefs" placeholder="Предпочитания (напр. без пушене)">
+                    <button onclick="saveSettings()" class="btn-action" style="background: #333;">ЗАПАЗИ ПРОФИЛА</button>
+                </div>
+                <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+                <h3>🔒 Сигурност</h3>
+                <input type="password" id="curr_pass" placeholder="Текуща парола">
+                <input type="password" id="new_pass" placeholder="Нова парола">
+                <input type="text" id="new_phone" placeholder="Нов телефон">
+                <button onclick="saveSecurity()" class="btn-action" style="background: #991b1b;">ОБНОВИ ПАРОЛА</button>
+            </div>
+
+            <div class="card">
+                <h3>⭐ Любими шофьори</h3>
+                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                    <input type="number" id="add_fav_id" placeholder="ID" style="flex: 1;">
+                    <button onclick="addFav()" class="btn-yellow-sm" style="flex: 1;">ДОБАВИ</button>
+                </div>
+                <div id="fav-box" class="fav-list">Няма любими шофьори.</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var rawUser = localStorage.getItem('user');
+        if (!rawUser) window.location.href = "/login";
+
+        var user = JSON.parse(rawUser);
+        if (user.role !== 'client') window.location.href = "/login";
+
+        document.getElementById('display-name').innerText = "Здравей, " + user.full_name + "!";
+
+        var currentTripId = null;
+        var statusInterval = null;
+
+
+        function fetchHistory() {
+            fetch("/user/" + user.id + "/history")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var box = document.getElementById('history-box');
+                    var list = data["trip history"] || [];
+                    if (list.length > 0) {
+                        box.innerHTML = list.map(function(t) {
+                            return '<div class="item"><span>🏁 ' + t.destination + '</span><b>' + t.final_price + ' лв.</b></div>';
+                        }).join('');
+                    } else {
+                        box.innerHTML = "Все още нямате пътувания.";
+                    }
+                });
+        }
+
+        function fetchFavorites() {
+            fetch("/user/" + user.id + "/favorites")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var box = document.getElementById('fav-box');
+                    var list = data["favorite drivers"] || [];
+                    if (list.length > 0) {
+                        box.innerHTML = list.map(function(d) {
+                            return '<div class="item"><div><b>' + d.full_name + '</b><br><small>' + (d.car_model || 'Автомобил') + '</small></div><span>⭐ ' + (d.rating || '5.0') + '</span></div>';
+                        }).join('');
+                    } else {
+                        box.innerHTML = "Списъкът е празен.";
+                    }
+                });
+        }
+
+        function trackTripStatus() {
+            if (!currentTripId) return;
+
+            fetch("/trips/available-trips")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                });
+        }
+
+        document.getElementById('trip-form').onsubmit = function(e) {
+            e.preventDefault();
+
+            var tripBody = {
+                client_id: user.id,
+                pickup_location: document.getElementById('p_pickup').value,
+                destination: document.getElementById('p_dest').value,
+                car_category: document.getElementById('p_cat').value,
+                final_price: 15.00,
+                is_shared: false,
+                is_urgent: document.getElementById('p_urgent').checked
+            };
+
+            fetch('/trip/request', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(tripBody)
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                currentTripId = data.trip_id;
+                document.getElementById('active-trip-zone').style.display = 'block';
+                document.getElementById('price-display').innerText = "15.00 лв.";
+                document.getElementById('complete-btn').style.display = 'block';
+                alert("Поръчката е изпратена!");
+
+                statusInterval = setInterval(trackTripStatus, 5000);
+            });
+        };
+
+        document.getElementById('complete-btn').onclick = function() {
+            if (!currentTripId) return;
+
+            fetch("/trip/" + currentTripId + "/complete", { method: 'PATCH' })
+                .then(function(res) {
+                    if (res.ok) {
+                        alert("Пътуването приключи успешно!");
+                        clearInterval(statusInterval);
+                        document.getElementById('active-trip-zone').style.display = 'none';
+                        document.getElementById('trip-form').reset();
+                        fetchHistory();
+                    }
+                });
+        };
+
+        function addFav() {
+            var id = document.getElementById('add_fav_id').value;
+            if (!id) return;
+            fetch("/user/favorites/add?user_id=" + user.id + "&driver_id=" + id, { method: 'POST' })
+                .then(function() {
+                    fetchFavorites();
+                    document.getElementById('add_fav_id').value = "";
+                });
+        }
+
+        function saveSettings() {
+            var a = document.getElementById('u_address').value;
+            var p = document.getElementById('u_prefs').value;
+            fetch("/user/" + user.id + "/settings?address=" + encodeURIComponent(a) + "&prefs=" + encodeURIComponent(p), { method: 'PATCH' })
+                .then(function() { alert("Профилът е обновен!"); });
+        }
+
+        function saveSecurity() {
+            var cp = document.getElementById('curr_pass').value;
+            var np = document.getElementById('new_pass').value;
+            var ph = document.getElementById('new_phone').value;
+            if (!cp) return alert("Моля, въведете текуща парола!");
+
+            fetch("/user/" + user.id + "/security?password=" + cp + "&new_password=" + np + "&phone=" + ph, { method: 'PUT' })
+                .then(function(res) { return res.json(); })
+                .then(function(data) { alert(data.message || data.detail); });
+        }
+
+        fetchHistory();
+        fetchFavorites();
+    </script>
+</body>
+</html>

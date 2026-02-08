@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uber | Шофьорски панел</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+    <style>
+        .driver-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; padding: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
+        .online { background: #dcfce7; color: #166534; border: 1px solid #22c55e; }
+        .offline { background: #fee2e2; color: #991b1b; border: 1px solid #ef4444; }
+        .trip-req { background: #f9f9f9; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 5px solid #000; }
+        .btn-accept { background: #22c55e; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: bold; }
+        input { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ddd; border-radius: 6px; }
+
+        #setup-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 30px; border-radius: 15px; width: 400px; text-align: center; }
+        .history-item { font-size: 0.85rem; padding: 8px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body style="background: #f4f4f4;">
+
+    <div id="setup-modal">
+        <div class="modal-content">
+            <h2>🚗 Регистрирай автомобил</h2>
+            <p>Трябва да добавиш кола, за да виждаш поръчки.</p>
+            <input type="text" id="setup_car" placeholder="Марка и модел (напр. BMW 5)">
+            <input type="text" id="setup_plate" placeholder="Рег. номер (напр. СВ1234АВ)">
+            <button onclick="registerDriver()" class="btn-auth" style="width: 100%; margin-top: 10px; background: #000; color: #fff; padding: 10px; border: none; border-radius: 6px; cursor: pointer;">ГОТОВО</button>
+        </div>
+    </div>
+
+    <nav class="navbar" style="background: #000; padding: 15px; display: flex; justify-content: space-between; align-items: center;">
+        <a href="/client" class="logo" style="color: #fff; text-decoration: none; font-weight: bold;">UBER DRIVER</a>
+        <div class="nav-links">
+            <span id="dr-name" style="color: white; font-weight: bold; margin-right: 15px;"></span>
+            <a href="/login" onclick="localStorage.clear()" class="btn-yellow" style="background: #ffc043; padding: 8px 15px; text-decoration: none; color: #000; border-radius: 6px;">Изход</a>
+        </div>
+    </nav>
+
+    <div class="container driver-grid">
+        <div>
+            <div id="status-box" class="status-bar offline">
+                <span id="status-text">OFFLINE</span>
+                <button onclick="toggleShift()" class="btn-yellow" style="padding: 5px 15px; border: none; cursor: pointer; background: #ffc043; border-radius: 4px;">СМЕНИ СТАТУС</button>
+            </div>
+
+            <div class="card">
+                <h3>🔔 Налични поръчки</h3>
+                <div id="available-trips">Търсене на заявки...</div>
+            </div>
+
+            <div class="card">
+                <h3>📜 История на курсовете</h3>
+                <div id="history-list">Няма завършени курсове.</div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card" style="background: #000; color: #fff; text-align: center;">
+                <h3 style="color: #ffc043;">💰 Моят баланс</h3>
+                <h1 id="balance">0.00 лв.</h1>
+                <p id="total-trips">Завършени курсове: 0</p>
+                <button onclick="loadEarnings()" class="btn-yellow" style="width: 100%; border: none; padding: 10px; margin-top: 10px; cursor: pointer; background: #ffc043; border-radius: 6px;">ОБНОВИ</button>
+            </div>
+
+            <div class="card">
+                <h3>🚗 Настройки на колата</h3>
+                <input type="number" id="m_price" step="0.1" placeholder="Цена на км">
+                <input type="text" id="m_loc" placeholder="Текуща локация">
+                <button onclick="updateService()" class="btn-auth" style="width: 100%; margin-top: 10px; background: #000; color: #fff; padding: 10px; border: none; border-radius: 6px; cursor: pointer;">ЗАПАЗИ ПРОМЕНИТЕ</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var userData = localStorage.getItem('user');
+        if (!userData) window.location.href = "/login";
+
+        var user = JSON.parse(userData);
+        if (user.role !== 'driver') window.location.href = "/login";
+        document.getElementById('dr-name').innerText = user.full_name;
+
+        var driverId = localStorage.getItem('driver_id') || {{ driver_id if driver_id else 'null' }};
+        if (driverId === 'null') driverId = null;
+
+        function updateStatusUI(isOnline) {
+            var box = document.getElementById('status-box');
+            var txt = document.getElementById('status-text');
+            if (isOnline) {
+                box.className = "status-bar online";
+                txt.innerText = "В момента сте: ONLINE";
+            } else {
+                box.className = "status-bar offline";
+                txt.innerText = "В момента сте: OFFLINE";
+            }
+        }
+
+        function checkStatus() {
+            if (!driverId) return;
+            fetch('/search/drivers')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var available = data["available drivers"] || [];
+                    var isOnline = available.some(function(d) {
+                        return String(d.id) === String(driverId);
+                    });
+                    updateStatusUI(isOnline);
+                });
+        }
+
+        function validateDriver() {
+            if (!driverId) {
+                document.getElementById('setup-modal').style.display = 'flex';
+                return;
+            }
+
+            fetch("/driver/" + driverId + "/earnings")
+                .then(function(res) {
+                    if (res.status === 404) {
+                        document.getElementById('setup-modal').style.display = 'flex';
+                    } else {
+                        return res.json().then(function(data) {
+                            localStorage.setItem('driver_id', driverId);
+                            init();
+                        });
+                    }
+                });
+        }
+
+        function registerDriver() {
+            var car = document.getElementById('setup_car').value;
+            var plate = document.getElementById('setup_plate').value;
+            if (!car || !plate) return alert("Попълни всички полета!");
+
+            fetch("/driver/setup?user_id=" + user.id + "&car_model=" + encodeURIComponent(car) + "&license_plate=" + encodeURIComponent(plate), {
+                method: 'POST'
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.driver_id) {
+                    alert("Профилът е готов!");
+                    driverId = data.driver_id;
+                    localStorage.setItem('driver_id', driverId);
+                    document.getElementById('setup-modal').style.display = 'none';
+                    init();
+                } else { alert(data.detail || "Възникна грешка при регистрацията."); }
+            });
+        }
+
+        function toggleShift() {
+            if (!driverId) return;
+            fetch("/driver/" + driverId + "/shift", { method: 'PATCH' })
+                .then(function(res) {
+                    if (res.ok) {
+                        checkStatus();
+                    } else {
+                        alert("Неуспешна смяна на статуса.");
+                    }
+                });
+        }
+
+        function init() {
+            checkStatus();
+            loadEarnings();
+            loadAvailableTrips();
+            loadHistory();
+        }
+
+        function loadEarnings() {
+            if (!driverId) return;
+            fetch("/driver/" + driverId + "/earnings")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (data.balance !== undefined) {
+                        document.getElementById('balance').innerText = data.balance.toFixed(2) + " лв.";
+                        document.getElementById('total-trips').innerText = "Завършени курсове: " + data.trips_count;
+                    }
+                });
+        }
+
+        function loadAvailableTrips() {
+            fetch('/trips/available-trips')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var container = document.getElementById('available-trips');
+                    var trips = data["available trips"] || [];
+                    if (trips.length === 0) {
+                        container.innerHTML = "<p style='color:#666;'>Няма активни заявки.</p>";
+                        return;
+                    }
+                    container.innerHTML = trips.map(function(t) {
+                        return '<div class="trip-req">' +
+                               '<strong>' + t.pickup_location + ' ➔ ' + t.destination + '</strong><br>' +
+                               '<small>Цена: ' + t.final_price + ' лв. | Кат: ' + t.car_category + '</small><br>' +
+                               '<button onclick="acceptTrip(' + t.id + ')" class="btn-accept" style="margin-top:10px;">ПРИЕМИ</button>' +
+                               '</div>';
+                    }).join('');
+                });
+        }
+
+        function loadHistory() {
+            if (!driverId) return;
+            fetch("/driver/" + driverId + "/trips/history")
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    var list = document.getElementById('history-list');
+                    if (data.trips && data.trips.length > 0) {
+                        list.innerHTML = data.trips.map(function(t) {
+                            return '<div class="history-item"><span>🏁 ' + t.destination + '</span><b>' + t.final_price + ' лв.</b></div>';
+                        }).join('');
+                    } else {
+                        list.innerHTML = "Няма завършени курсове.";
+                    }
+                });
+        }
+
+        function acceptTrip(tripId) {
+            if (!driverId) return;
+            fetch("/trip/" + tripId + "/accept?driver_id=" + driverId, { method: 'PATCH' })
+                .then(function(res) {
+                    if (res.ok) {
+                        alert("Курсът е приет!");
+                        loadAvailableTrips();
+                        loadEarnings();
+                        loadHistory();
+                    } else {
+                        res.json().then(function(d) { alert(d.detail); });
+                    }
+                });
+        }
+
+        function updateService() {
+            if (!driverId) return;
+            var price = document.getElementById('m_price').value;
+            var loc = document.getElementById('m_loc').value;
+            fetch("/driver/" + driverId + "/manage-service?price=" + price + "&location=" + encodeURIComponent(loc), { method: 'PUT' })
+                .then(function(res) {
+                    if (res.ok) alert("Запазено!");
+                });
+        }
+
+        validateDriver();
+        setInterval(loadAvailableTrips, 10000);
+    </script>
+</body>
+</html>

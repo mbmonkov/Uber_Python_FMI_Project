@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uber Clone | Начало</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}">
+</head>
+<body>
+
+    <nav class="navbar">
+        <a href="/" class="logo">UBER</a>
+        <div class="nav-links">
+            <a href="/login">Вход</a>
+            <a href="/register" class="btn-yellow">Регистрация</a>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <main>
+            <h2>Налични шофьори</h2>
+
+            {% if available_drivers %}
+                {% for driver in available_drivers %}
+                <div class="driver-card">
+                    <div>
+                        <h3 style="font-weight: 800;">{{ driver.full_name }}</h3>
+                        <p class="car-info">{{ driver.car_model }} • <strong>{{ driver.car_category }}</strong></p>
+                        <p class="location-tag">📍 {{ driver.current_location }}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div class="rating-badge">⭐ {{ driver.rating }}</div>
+                        <a href="/driver/{{ driver.id }}/profile" style="color: black; font-size: 0.8rem; font-weight: bold; display: block; margin-top: 10px;">ДЕТАЙЛИ</a>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p style="color: #888; text-align: center; margin-top: 50px;">В момента няма свободни шофьори на линия.</p>
+            {% endif %}
+        </main>
+
+        <aside class="ranking-sidebar">
+            <h2 style="color: white; font-size: 1.4rem; border-bottom: 1px solid #333; padding-bottom: 10px;">Топ 5 Шофьори</h2>
+
+            {% for rank in rankings %}
+            <div class="rank-item">
+                <span class="rank-number">{{ loop.index }}</span>
+                <div>
+                    <span class="rank-name">{{ rank.full_name }}</span>
+                    <span class="rank-score">Рейтинг: ⭐ {{ rank.rating }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </aside>
+
+    </div>
+
+</body>
+</html>
